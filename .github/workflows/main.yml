@@ -2,47 +2,60 @@ name: Sync Codeforces Solutions
 
 on:
   schedule:
-    # Run every day at 00:00 UTC
-    - cron: '0 0 * * *'
-  workflow_dispatch:  # Allow manual trigger
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      
+          persist-credentials: true
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
-      
-      - name: Configure Git
+
+      - name: Check Codeforces secret
+        shell: bash
+        env:
+          CF_HANDLE: ${{ secrets.CF_HANDLE }}
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-      
-      - name: Run Codeforces sync
+          if [ -z "$CF_HANDLE" ]; then
+            echo "CF_HANDLE secret is not configured. Skipping sync."
+            exit 0
+          fi
+
+      - name: Run sync script
         env:
           CF_HANDLE: ${{ secrets.CF_HANDLE }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python sync_cf_to_github.py
-      
-      - name: Push changes
-        if: always()
+
+      - name: Commit and push if there are changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            git push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync new accepted Codeforces solutions"
+            git push origin HEAD:${GITHUB_REF_NAME}
           else
-            echo "No changes to push"
+            echo "No changes to commit."
           fi
